@@ -1,24 +1,17 @@
 import { HandledError } from 'storybook/internal/common';
 import {
   type ConfigFile,
-  type CsfObject,
   type ESTree as E,
   printCsfPath,
+  resolveExpression,
   staticKey,
   unwrapExpression,
 } from 'storybook/internal/csf-tools';
 
 import picocolors from 'picocolors';
 
+import { editParsedFile, readForEdit } from '../helpers/edit-parsed-file.ts';
 import type { Fix } from '../types.ts';
-
-const readForMigration = (object: CsfObject, path: string[]) => {
-  const found = object.inspect(path);
-  if (found.kind === 'unreadable') {
-    throw new HandledError(`${found.diagnostic.message} Set initialGlobals manually.`);
-  }
-  return found.kind === 'value' ? found.node : undefined;
-};
 
 const isLiteralData = (node: E.Expression): boolean => {
   const value = unwrapExpression(node);
@@ -53,52 +46,54 @@ const isLiteralData = (node: E.Expression): boolean => {
 
 const migrate = (object: ConfigFile) => {
   const globalTypes = unwrapExpression(object.getFieldNode(['globalTypes']));
-  if (!globalTypes) {
+  if (globalTypes?.type !== 'ObjectExpression') {
     return;
   }
-  if (globalTypes.type !== 'ObjectExpression') {
-    return;
-  }
-  const hasDefaults = globalTypes.properties.some((property) => {
+  const mayHaveDefaults = globalTypes.properties.some((property) => {
     if (property.type !== 'Property') {
       return false;
     }
-    const value = unwrapExpression(property.value);
-    if (value.type === 'ObjectExpression') {
-      return value.properties.some((member) => staticKey(member) === 'defaultValue');
+    const globalType = resolveExpression(object.editor.scopes, property.value, 'read');
+    if (globalType?.type !== 'ObjectExpression') {
+      return false;
     }
-    const name = staticKey(property);
-    return (
-      name !== undefined && object.inspect(['globalTypes', name, 'defaultValue']).kind === 'value'
-    );
+    return globalType.properties.some((member) => {
+      const name = staticKey(member);
+      if (name !== undefined) {
+        return name === 'defaultValue';
+      }
+      if (member.type !== 'Property' || !member.computed) {
+        return false;
+      }
+      const key = resolveExpression(object.editor.scopes, member.key, 'read');
+      if (key?.type === 'TemplateLiteral' && key.expressions.length === 0) {
+        return staticKey({ ...member, key }) === 'defaultValue';
+      }
+      return key?.type !== 'Literal' || key.value === 'defaultValue';
+    });
   });
-  if (!hasDefaults) {
+  if (!mayHaveDefaults) {
     return;
   }
 
   for (const property of globalTypes.properties) {
     const name = staticKey(property);
     if (name === undefined) {
-      throw new HandledError(
-        'Cannot migrate globalTypes with spreads or dynamic keys. Set initialGlobals manually.'
-      );
+      throw new HandledError('Cannot migrate globalTypes with spreads or dynamic keys.');
     }
     const legacyPath = ['globalTypes', name, 'defaultValue'];
     const initialPath = ['initialGlobals', name];
-    const defaultValue = readForMigration(object, legacyPath);
+    const defaultValue = readForEdit(object, legacyPath);
     if (!defaultValue) {
       continue;
     }
     if (!isLiteralData(defaultValue)) {
-      throw new HandledError(
-        `Cannot migrate ${printCsfPath(legacyPath)} automatically. Set ${printCsfPath(initialPath)} manually.`
-      );
+      throw new HandledError(`Cannot migrate ${printCsfPath(legacyPath)} automatically.`);
     }
-    const result = readForMigration(object, initialPath)
-      ? object.remove(legacyPath)
-      : object.move(legacyPath, initialPath);
-    if (!result.ok) {
-      throw new HandledError(`${result.diagnostic.message} Set initialGlobals manually.`);
+    if (readForEdit(object, initialPath)) {
+      object.remove(legacyPath);
+    } else {
+      object.move(legacyPath, initialPath);
     }
   }
 };
@@ -110,8 +105,8 @@ export const globaltypesDefaultValue: Fix = {
     `Move ${picocolors.cyan('globalTypes')} default values to ${picocolors.cyan('initialGlobals')}`,
   transform: () => [
     {
-      filter: { kind: ['preview'], code: 'defaultValue' },
-      editConfig: migrate,
+      filter: { kind: ['preview'] },
+      editConfig: (config) => editParsedFile(config, migrate, 'Set initialGlobals manually.'),
     },
   ],
 };

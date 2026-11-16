@@ -7,6 +7,7 @@ import * as common from 'storybook/internal/common';
 
 import { fs, vol } from 'memfs';
 import { resolve } from 'pathe';
+import { dedent } from 'ts-dedent';
 
 import { checkFix, runFix } from '../helpers/fix-test-utils.ts';
 import { globaltypesDefaultValue } from './globaltypes-default-value.ts';
@@ -175,38 +176,114 @@ describe('globaltypes-default-value', () => {
   it.each([
     [
       'a default object',
-      "export default { globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } } };",
-      "export default { globalTypes: { direction: { description: 'Direction' } }, initialGlobals: { direction: 'ltr' } };",
+      dedent`
+        export default {
+          globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } },
+        };
+      `,
+      dedent`
+        export default {
+          globalTypes: { direction: { description: 'Direction' } },
+          initialGlobals: { direction: 'ltr' },
+        };
+      `,
     ],
     [
       'a local preview object',
-      "const preview = { globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } } }; export default preview;",
-      "const preview = { globalTypes: { direction: { description: 'Direction' } }, initialGlobals: { direction: 'ltr' } }; export default preview;",
+      dedent`
+        const preview = {
+          globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } },
+        };
+        export default preview;
+      `,
+      dedent`
+        const preview = {
+          globalTypes: { direction: { description: 'Direction' } },
+          initialGlobals: { direction: 'ltr' },
+        };
+        export default preview;
+      `,
     ],
     [
       'a satisfies wrapper',
-      "import type { Preview } from '@storybook/react-vite';\nconst preview = { globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } } } satisfies Preview; export default preview;",
-      "import type { Preview } from '@storybook/react-vite';\nconst preview = { globalTypes: { direction: { description: 'Direction' } }, initialGlobals: { direction: 'ltr' } } satisfies Preview; export default preview;",
+      dedent`
+        import type { Preview } from '@storybook/react-vite';
+        const preview = {
+          globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } },
+        } satisfies Preview;
+        export default preview;
+      `,
+      dedent`
+        import type { Preview } from '@storybook/react-vite';
+        const preview = {
+          globalTypes: { direction: { description: 'Direction' } },
+          initialGlobals: { direction: 'ltr' },
+        } satisfies Preview;
+        export default preview;
+      `,
     ],
     [
       'an as wrapper',
-      "import type { Preview } from '@storybook/react-vite';\nexport default { globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } } } as Preview;",
-      "import type { Preview } from '@storybook/react-vite';\nexport default { globalTypes: { direction: { description: 'Direction' } }, initialGlobals: { direction: 'ltr' } } as Preview;",
+      dedent`
+        import type { Preview } from '@storybook/react-vite';
+        export default {
+          globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } },
+        } as Preview;
+      `,
+      dedent`
+        import type { Preview } from '@storybook/react-vite';
+        export default {
+          globalTypes: { direction: { description: 'Direction' } },
+          initialGlobals: { direction: 'ltr' },
+        } as Preview;
+      `,
     ],
     [
       'definePreview',
-      "import { definePreview } from '@storybook/react-vite';\nexport default definePreview({ globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } } });",
-      "import { definePreview } from '@storybook/react-vite';\nexport default definePreview({ globalTypes: { direction: { description: 'Direction' } }, initialGlobals: { direction: 'ltr' } });",
+      dedent`
+        import { definePreview } from '@storybook/react-vite';
+        export default definePreview({
+          globalTypes: { direction: { defaultValue: 'ltr', description: 'Direction' } },
+        });
+      `,
+      dedent`
+        import { definePreview } from '@storybook/react-vite';
+        export default definePreview({
+          globalTypes: { direction: { description: 'Direction' } },
+          initialGlobals: { direction: 'ltr' },
+        });
+      `,
     ],
     [
       'named globalTypes from a local object',
-      "const defaults = { direction: { defaultValue: 'ltr', description: 'Direction' } }; export const globalTypes = defaults;",
-      "const defaults = { direction: { description: 'Direction' } }; export const globalTypes = defaults;\nexport const initialGlobals = { direction: 'ltr' };",
+      dedent`
+        const defaults = {
+          direction: { defaultValue: 'ltr', description: 'Direction' },
+        };
+        export const globalTypes = defaults;
+      `,
+      dedent`
+        const defaults = {
+          direction: { description: 'Direction' },
+        };
+        export const globalTypes = defaults;
+        export const initialGlobals = { direction: 'ltr' };
+      `,
     ],
     [
       'default globalTypes from a local object',
-      "const defaults = { direction: { defaultValue: 'ltr', description: 'Direction' } }; export default { globalTypes: defaults };",
-      "const defaults = { direction: { description: 'Direction' } }; export default { globalTypes: defaults, initialGlobals: { direction: 'ltr' } };",
+      dedent`
+        const defaults = {
+          direction: { defaultValue: 'ltr', description: 'Direction' },
+        };
+        export default { globalTypes: defaults };
+      `,
+      dedent`
+        const defaults = {
+          direction: { description: 'Direction' },
+        };
+        export default { globalTypes: defaults, initialGlobals: { direction: 'ltr' } };
+      `,
     ],
   ])('migrates %s without changing its export form', async (_name, source, expected) => {
     const { failures, preview } = await migrate(source, resolve('.storybook/preview.tsx'));
@@ -250,6 +327,24 @@ describe('globaltypes-default-value', () => {
       export const initialGlobals = { 'preferred-locale': 'en' };"
     `);
   });
+
+  it.each(['default\\u0056alue', "'default\\u0056alue'"])(
+    'migrates the escaped property %s',
+    async (key) => {
+      const source = `export const globalTypes = { direction: { ${key}: 'ltr', description: 'Direction' } };`;
+      vol.fromJSON({ [previewConfigPath]: source });
+
+      expect(await checkFix(globaltypesDefaultValue, options)).toEqual({});
+
+      const { failures, preview } = await migrate(source);
+
+      expect(failures).toEqual([]);
+      expect(preview).toBe(dedent`
+        export const globalTypes = { direction: { description: 'Direction' } };
+        export const initialGlobals = { direction: 'ltr' };
+      `);
+    }
+  );
 
   it.each([
     ['no globals', 'export default {};'],
@@ -413,6 +508,17 @@ describe('globaltypes-default-value', () => {
       'a member expression',
       'export const globalTypes = { direction: { defaultValue: defaults.direction } };',
     ],
+    [
+      'a computed property expression',
+      "export const globalTypes = { direction: { ['default' + 'Value']: 'ltr' } };",
+    ],
+    [
+      'an imported property name',
+      dedent`
+        import { defaultKey } from './keys';
+        export const globalTypes = { direction: { [defaultKey]: 'ltr' } };
+      `,
+    ],
   ])('requires a manual migration for %s', async (_name, source) => {
     vol.fromJSON({ [previewConfigPath]: source });
     expect(await checkFix(globaltypesDefaultValue, options)).toEqual({});
@@ -427,5 +533,147 @@ describe('globaltypes-default-value', () => {
       },
     ]);
     expect(preview).toBe(source);
+  });
+
+  it('migrates global types through multiple local aliases', async () => {
+    const source = dedent`
+      const defaults = {
+        direction: { defaultValue: 'ltr', description: 'Direction' },
+      };
+      const types = defaults;
+      export const globalTypes = types;
+    `;
+    vol.fromJSON({ [previewConfigPath]: source });
+
+    expect(await checkFix(globaltypesDefaultValue, options)).toEqual({});
+
+    const { failures, preview } = await migrate(source);
+
+    expect(failures).toEqual([]);
+    expect(preview).toBe(dedent`
+      const defaults = {
+        direction: { description: 'Direction' },
+      };
+      const types = defaults;
+      export const globalTypes = types;
+      export const initialGlobals = { direction: 'ltr' };
+    `);
+  });
+
+  it.each(['as const', 'satisfies Preview'])(
+    'migrates a factory argument wrapped in %s',
+    async (wrapper) => {
+      const source = dedent`
+        import { definePreview, type Preview } from '@storybook/react-vite';
+        export default definePreview({
+          globalTypes: { direction: { defaultValue: 'ltr' } },
+        } ${wrapper});
+      `;
+      vol.fromJSON({ [previewConfigPath]: source });
+
+      expect(await checkFix(globaltypesDefaultValue, options)).toEqual({});
+
+      const { failures, preview } = await migrate(source);
+
+      expect(failures).toEqual([]);
+      expect(preview).toBe(dedent`
+        import { definePreview, type Preview } from '@storybook/react-vite';
+        export default definePreview({
+          initialGlobals: { direction: 'ltr' },
+        } ${wrapper});
+      `);
+    }
+  );
+
+  it('reports a computed default key without changing the preview', async () => {
+    const source = dedent`
+      const key = 'defaultValue';
+      export const globalTypes = {
+        direction: { [key]: 'ltr' },
+      };
+    `;
+    vol.fromJSON({ [previewConfigPath]: source });
+
+    expect(await checkFix(globaltypesDefaultValue, options)).toEqual({});
+
+    const { failures, preview } = await migrate(source);
+
+    expect(failures).toEqual([
+      {
+        file: previewConfigPath,
+        kind: 'preview',
+        message: expect.stringContaining('initialGlobals'),
+      },
+    ]);
+    expect(preview).toBe(source);
+  });
+
+  it.each([
+    [
+      'an unreadable default',
+      dedent`
+        export const globalTypes = {
+          direction: { defaultValue: 'ltr', ...shared },
+        };
+      `,
+    ],
+    [
+      'a shared global type that cannot be edited',
+      dedent`
+        const direction = { defaultValue: 'ltr' };
+        export const globalTypes = { direction };
+        export const other = direction;
+      `,
+    ],
+  ])('includes the source line when reporting %s', async (_name, source) => {
+    const { failures, preview } = await migrate(source);
+
+    expect(failures).toEqual([
+      {
+        file: previewConfigPath,
+        kind: 'preview',
+        message: expect.stringContaining('line 2:'),
+      },
+    ]);
+    expect(failures[0].message).toContain('initialGlobals');
+    expect(preview).toBe(source);
+  });
+
+  it.each([
+    [
+      'computed metadata beside a docs-table default',
+      dedent`
+        const key = 'description';
+        export const globalTypes = {
+          direction: {
+            [key]: 'Direction',
+            table: { defaultValue: { summary: 'ltr' } },
+          },
+        };
+      `,
+    ],
+    [
+      'a template literal metadata key beside a comment',
+      dedent`
+        const key = \`description\`;
+        export const globalTypes = { direction: { [key]: 'Direction' } };
+        // defaultValue removed
+      `,
+    ],
+    [
+      'a computed docs-table default',
+      dedent`
+        const key = 'defaultValue';
+        export const globalTypes = {
+          direction: { table: { [key]: { summary: 'ltr' } } },
+        };
+      `,
+    ],
+  ])('does not apply to %s', async (_name, source) => {
+    vol.fromJSON({ [previewConfigPath]: source });
+
+    expect(await checkFix(globaltypesDefaultValue, options)).toBeNull();
+    expect(await runFix(globaltypesDefaultValue, { ...options, result: {} })).toEqual([]);
+    expect(fs.readFileSync(previewConfigPath, 'utf8')).toBe(source);
   });
 });
