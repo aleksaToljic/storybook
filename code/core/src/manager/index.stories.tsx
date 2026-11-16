@@ -15,7 +15,7 @@ import { getChannel, setChannel } from 'storybook/internal/channels';
 
 import type { API, AddonStore } from 'storybook/manager-api';
 import { addons } from 'storybook/manager-api';
-import { expect, screen, waitFor, within } from 'storybook/test';
+import { expect, screen, userEvent as testUserEvent, waitFor, within } from 'storybook/test';
 import { color } from 'storybook/theming/emotion';
 
 import preview from '../../../.storybook/preview.tsx';
@@ -176,6 +176,44 @@ export const RightPanel = meta.story({
 export const FullScreen = meta.story({
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(await canvas.findByRole('button', { name: /Enter full screen/i }));
+  },
+});
+
+export const SidebarResizeAfterFullscreen = meta.story({
+  play: async ({ canvas, userEvent }) => {
+    const handle = await canvas.findByRole('separator', { name: 'Sidebar resize handle' });
+    const initialWidth = Number(handle.getAttribute('aria-valuenow'));
+
+    handle.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    await waitFor(() => expect(handle).toHaveAttribute('aria-valuenow', `${initialWidth + 10}`));
+
+    await userEvent.click(await canvas.findByRole('button', { name: /Enter full screen/i }));
+    await waitFor(() => expect(handle).not.toBeInTheDocument());
+    await userEvent.click(await canvas.findByRole('button', { name: /Exit full screen/i }));
+
+    const restoredHandle = await canvas.findByRole('separator', { name: 'Sidebar resize handle' });
+    expect(restoredHandle).toHaveAttribute('aria-valuenow', `${initialWidth + 10}`);
+
+    const { x, y, width, height } = restoredHandle.getBoundingClientRect();
+    const start = { clientX: x + width / 2, clientY: y + height / 2 };
+    await testUserEvent.pointer([
+      { keys: '[MouseLeft>]', target: restoredHandle, coords: start },
+      { coords: { ...start, clientX: start.clientX + 40 } },
+      { keys: '[/MouseLeft]' },
+    ]);
+    await waitFor(() =>
+      expect(Number(restoredHandle.getAttribute('aria-valuenow'))).toBeGreaterThan(
+        initialWidth + 10
+      )
+    );
+
+    const draggedWidth = Number(restoredHandle.getAttribute('aria-valuenow'));
+    restoredHandle.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    await waitFor(() =>
+      expect(restoredHandle).toHaveAttribute('aria-valuenow', `${draggedWidth + 10}`)
+    );
   },
 });
 

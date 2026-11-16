@@ -62,11 +62,13 @@ const useLayoutSyncingState = ({
   managerLayoutState,
   setManagerLayoutState,
   isDesktop,
+  showSidebar,
 }: {
   api: API;
   managerLayoutState: Props['managerLayoutState'];
   setManagerLayoutState: Props['setManagerLayoutState'];
   isDesktop: boolean;
+  showSidebar: boolean;
 }) => {
   // ref to keep track of previous managerLayoutState, to check if the props change
   const prevManagerLayoutStateRef = React.useRef<ManagerLayoutState>(managerLayoutState);
@@ -123,6 +125,7 @@ const useLayoutSyncingState = ({
   const { panelResizerRef, sidebarResizerRef, sidebarMaxWidth, panelMaxSize } = useDragging({
     setState: setInternalDraggingSizeState,
     isDesktop,
+    showSidebar,
     navSize: customisedNavSize,
     showPanel: customisedShowPanel,
     rightPanelWidth,
@@ -169,7 +172,13 @@ export const Layout = ({ managerLayoutState, setManagerLayoutState, ...slots }: 
     showPanel,
     isDragging,
     dragCursor,
-  } = useLayoutSyncingState({ api, managerLayoutState, setManagerLayoutState, isDesktop });
+  } = useLayoutSyncingState({
+    api,
+    managerLayoutState,
+    setManagerLayoutState,
+    isDesktop,
+    showSidebar,
+  });
 
   // Install landmark navigation listener in parent container of all landmarks.
   useLandmarkIndicator();
