@@ -28,7 +28,8 @@ export const editParsedFile = async <File extends ParsedFile>(
     }
   } catch (error) {
     if (errorContext && error instanceof HandledError) {
-      throw new HandledError(`${error.message} ${errorContext}`);
+      const separator = /[.!?]$/.test(error.message) ? ' ' : '. ';
+      throw new HandledError(`${error.message}${separator}${errorContext}`);
     }
     throw error;
   }

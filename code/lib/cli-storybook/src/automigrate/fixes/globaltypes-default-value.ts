@@ -44,25 +44,44 @@ const isLiteralData = (node: E.Expression): boolean => {
   }
 };
 
+const getObjectProperties = (
+  object: ConfigFile,
+  node: E.Expression,
+  visited = new Set<E.ObjectExpression>()
+): E.ObjectProperty[] => {
+  const value = resolveExpression(object.editor.scopes, node, 'read');
+  if (value?.type !== 'ObjectExpression' || visited.has(value)) {
+    return [];
+  }
+  visited.add(value);
+  return value.properties.flatMap((property) =>
+    property.type === 'SpreadElement'
+      ? getObjectProperties(object, property.argument, visited)
+      : [property]
+  );
+};
+
 const migrate = (object: ConfigFile) => {
   const globalTypes = unwrapExpression(object.getFieldNode(['globalTypes']));
   if (globalTypes?.type !== 'ObjectExpression') {
     return;
   }
-  const mayHaveDefaults = globalTypes.properties.some((property) => {
-    if (property.type !== 'Property') {
+  const globalTypesInspection = object.inspect(['globalTypes']);
+  const mayHaveDefaults = getObjectProperties(object, globalTypes).some((property) => {
+    const globalName = staticKey(property);
+    if (
+      globalName !== undefined &&
+      globalTypesInspection.kind === 'value' &&
+      object.inspect(['globalTypes', globalName, 'defaultValue']).kind === 'missing'
+    ) {
       return false;
     }
-    const globalType = resolveExpression(object.editor.scopes, property.value, 'read');
-    if (globalType?.type !== 'ObjectExpression') {
-      return false;
-    }
-    return globalType.properties.some((member) => {
+    return getObjectProperties(object, property.value).some((member) => {
       const name = staticKey(member);
       if (name !== undefined) {
         return name === 'defaultValue';
       }
-      if (member.type !== 'Property' || !member.computed) {
+      if (!member.computed) {
         return false;
       }
       const key = resolveExpression(object.editor.scopes, member.key, 'read');
@@ -74,6 +93,9 @@ const migrate = (object: ConfigFile) => {
   });
   if (!mayHaveDefaults) {
     return;
+  }
+  if (!readForEdit(object, ['globalTypes'])) {
+    throw new HandledError('Cannot migrate named globalTypes alongside a default export.');
   }
 
   for (const property of globalTypes.properties) {

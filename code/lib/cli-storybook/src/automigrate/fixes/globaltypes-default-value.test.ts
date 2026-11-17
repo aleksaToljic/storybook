@@ -519,6 +519,50 @@ describe('globaltypes-default-value', () => {
         export const globalTypes = { direction: { [defaultKey]: 'ltr' } };
       `,
     ],
+    [
+      'named global types after a default export',
+      dedent`
+        export default { parameters: { layout: 'fullscreen' } };
+        export const globalTypes = { direction: { defaultValue: 'ltr' } };
+      `,
+    ],
+    [
+      'named global types before a default export',
+      dedent`
+        export const globalTypes = { direction: { defaultValue: 'ltr' } };
+        export default { parameters: { layout: 'fullscreen' } };
+      `,
+    ],
+    [
+      'global types supplied by a local spread',
+      dedent`
+        const types = { direction: { defaultValue: 'ltr' } };
+        export const globalTypes = { ...types };
+      `,
+    ],
+    [
+      'a default supplied by a local spread',
+      dedent`
+        const defaults = { defaultValue: 'ltr' };
+        export const globalTypes = { direction: { ...defaults } };
+      `,
+    ],
+    [
+      'global types supplied by nested local spreads',
+      dedent`
+        const defaults = { direction: { defaultValue: 'ltr' } };
+        const types = { ...defaults };
+        export default { globalTypes: { ...types } };
+      `,
+    ],
+    [
+      'conflicting global types from local spreads',
+      dedent`
+        const defaults = { direction: { defaultValue: 'ltr' } };
+        const types = { direction: { description: 'Direction' } };
+        export const globalTypes = { ...defaults, ...types };
+      `,
+    ],
   ])('requires a manual migration for %s', async (_name, source) => {
     vol.fromJSON({ [previewConfigPath]: source });
     expect(await checkFix(globaltypesDefaultValue, options)).toEqual({});
@@ -602,7 +646,7 @@ describe('globaltypes-default-value', () => {
       {
         file: previewConfigPath,
         kind: 'preview',
-        message: expect.stringContaining('initialGlobals'),
+        message: expect.stringContaining('contains dynamic key. Set initialGlobals manually.'),
       },
     ]);
     expect(preview).toBe(source);
@@ -666,6 +710,31 @@ describe('globaltypes-default-value', () => {
         const key = 'defaultValue';
         export const globalTypes = {
           direction: { table: { [key]: { summary: 'ltr' } } },
+        };
+      `,
+    ],
+    [
+      'local spreads without global defaults',
+      dedent`
+        const direction = { table: { defaultValue: { summary: 'ltr' } } };
+        const types = { direction: { ...direction } };
+        export const globalTypes = { ...types };
+      `,
+    ],
+    [
+      'mixed exports without global defaults',
+      dedent`
+        export default { parameters: { layout: 'fullscreen' } };
+        export const globalTypes = { direction: { description: 'Direction' } };
+      `,
+    ],
+    [
+      'a spread default overridden by a later global type',
+      dedent`
+        const types = { direction: { defaultValue: 'ltr' } };
+        export const globalTypes = {
+          ...types,
+          direction: { description: 'Direction' },
         };
       `,
     ],
