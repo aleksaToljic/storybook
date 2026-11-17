@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as common from 'storybook/internal/common';
+import { formatExistingFile, JsPackageManager } from 'storybook/internal/common';
 
 import { fs, vol } from 'memfs';
 import { resolve } from 'pathe';
@@ -14,10 +14,11 @@ import { globaltypesDefaultValue } from './globaltypes-default-value.ts';
 
 vi.mock('node:fs', { spy: true });
 vi.mock('node:fs/promises', { spy: true });
+vi.mock('storybook/internal/common', { spy: true });
 
 const previewConfigPath = resolve('.storybook/preview.jsx');
 const options = {
-  packageManager: common.JsPackageManager.prototype,
+  packageManager: vi.mocked(JsPackageManager.prototype),
   mainConfig: { stories: [] },
   mainConfigPath: resolve('.storybook/main.js'),
   configDir: resolve('.storybook'),
@@ -40,14 +41,14 @@ beforeEach(() => {
   vol.reset();
   vi.mocked(readFile).mockImplementation(fs.promises.readFile as typeof readFile);
   vi.mocked(writeFile).mockImplementation(fs.promises.writeFile as typeof writeFile);
-  vi.spyOn(common, 'formatExistingFile').mockImplementation(async (_path, source) => source);
+  vi.mocked(formatExistingFile).mockImplementation(async (_path, source) => source);
 });
 
 afterEach(() => {
   vi.mocked(existsSync).mockRestore();
   vi.mocked(readFile).mockRestore();
   vi.mocked(writeFile).mockRestore();
-  vi.mocked(common.formatExistingFile).mockRestore();
+  vi.mocked(formatExistingFile).mockRestore();
 });
 
 describe('globaltypes-default-value', () => {
@@ -82,6 +83,27 @@ describe('globaltypes-default-value', () => {
       export const parameters = { layout: 'fullscreen' };
       export const decorators = [(Story) => <main><Story /></main>];
       export const initialGlobals = { direction: 'ltr', css: 'basic', maxWidthWrapper: 'none' };"
+    `);
+  });
+
+  it('migrates defaults without changing neighboring globals that have none', async () => {
+    const { failures, preview } = await migrate(dedent`
+      export const globalTypes = {
+        theme: { description: 'Theme', toolbar: { items: ['light', 'dark'] } },
+        direction: { defaultValue: 'ltr', description: 'Direction' },
+        locale: { description: 'Locale' },
+      };
+    `);
+
+    expect(failures).toEqual([]);
+    expect(preview).toMatchInlineSnapshot(`
+      "export const globalTypes = {
+        theme: { description: 'Theme', toolbar: { items: ['light', 'dark'] } },
+        direction: { description: 'Direction' },
+        locale: { description: 'Locale' },
+      };
+
+      export const initialGlobals = { direction: 'ltr' };"
     `);
   });
 
@@ -378,6 +400,64 @@ describe('globaltypes-default-value', () => {
       'an argTypes default beside a preview spread',
       "import shared from './shared'; export default { ...shared, argTypes: { label: { defaultValue: 'Hello' } } };",
     ],
+    [
+      'computed metadata beside a docs-table default',
+      dedent`
+        const key = 'description';
+        export const globalTypes = {
+          direction: {
+            [key]: 'Direction',
+            table: { defaultValue: { summary: 'ltr' } },
+          },
+        };
+      `,
+    ],
+    [
+      'a template literal metadata key beside a comment',
+      dedent`
+        const key = \`description\`;
+        export const globalTypes = { direction: { [key]: 'Direction' } };
+        // defaultValue removed
+      `,
+    ],
+    [
+      'a computed docs-table default',
+      dedent`
+        const key = 'defaultValue';
+        export const globalTypes = {
+          direction: { table: { [key]: { summary: 'ltr' } } },
+        };
+      `,
+    ],
+    [
+      'local spreads without global defaults',
+      dedent`
+        const direction = { table: { defaultValue: { summary: 'ltr' } } };
+        const types = { direction: { ...direction } };
+        export const globalTypes = { ...types };
+      `,
+    ],
+    [
+      'mixed exports without global defaults',
+      dedent`
+        export default { parameters: { layout: 'fullscreen' } };
+        export const globalTypes = { direction: { description: 'Direction' } };
+      `,
+    ],
+    [
+      'a spread default overridden by a later global type',
+      dedent`
+        const types = { direction: { defaultValue: 'ltr' } };
+        export const globalTypes = {
+          ...types,
+          direction: { description: 'Direction' },
+        };
+      `,
+    ],
+    [
+      'a bigint metadata key without a default',
+      "export const globalTypes = { direction: { 1n: 'metadata' } };",
+    ],
   ])('does not apply to %s', async (_name, source) => {
     vol.fromJSON({ [previewConfigPath]: source });
 
@@ -499,6 +579,30 @@ describe('globaltypes-default-value', () => {
     [
       'a nested function call',
       'export const globalTypes = { theme: { defaultValue: { color: getColor() } } };',
+    ],
+    [
+      'an array containing a function call',
+      'export const globalTypes = { theme: { defaultValue: [1, getColor()] } };',
+    ],
+    [
+      'a computed property in the default value',
+      "export const globalTypes = { theme: { defaultValue: { ['a']: 1 } } };",
+    ],
+    [
+      'a function inside a default array',
+      'export const globalTypes = { theme: { defaultValue: [() => 1] } };',
+    ],
+    [
+      'a bigint inside a default object',
+      'export const globalTypes = { theme: { defaultValue: { m: 1n } } };',
+    ],
+    [
+      'a regular expression inside a nested default object',
+      'export const globalTypes = { theme: { defaultValue: { a: { b: { c: /x/ } } } } };',
+    ],
+    [
+      'a template literal default',
+      'export const globalTypes = { direction: { defaultValue: `ltr` } };',
     ],
     [
       'a spread in the default value',
@@ -681,68 +785,5 @@ describe('globaltypes-default-value', () => {
     ]);
     expect(failures[0].message).toContain('initialGlobals');
     expect(preview).toBe(source);
-  });
-
-  it.each([
-    [
-      'computed metadata beside a docs-table default',
-      dedent`
-        const key = 'description';
-        export const globalTypes = {
-          direction: {
-            [key]: 'Direction',
-            table: { defaultValue: { summary: 'ltr' } },
-          },
-        };
-      `,
-    ],
-    [
-      'a template literal metadata key beside a comment',
-      dedent`
-        const key = \`description\`;
-        export const globalTypes = { direction: { [key]: 'Direction' } };
-        // defaultValue removed
-      `,
-    ],
-    [
-      'a computed docs-table default',
-      dedent`
-        const key = 'defaultValue';
-        export const globalTypes = {
-          direction: { table: { [key]: { summary: 'ltr' } } },
-        };
-      `,
-    ],
-    [
-      'local spreads without global defaults',
-      dedent`
-        const direction = { table: { defaultValue: { summary: 'ltr' } } };
-        const types = { direction: { ...direction } };
-        export const globalTypes = { ...types };
-      `,
-    ],
-    [
-      'mixed exports without global defaults',
-      dedent`
-        export default { parameters: { layout: 'fullscreen' } };
-        export const globalTypes = { direction: { description: 'Direction' } };
-      `,
-    ],
-    [
-      'a spread default overridden by a later global type',
-      dedent`
-        const types = { direction: { defaultValue: 'ltr' } };
-        export const globalTypes = {
-          ...types,
-          direction: { description: 'Direction' },
-        };
-      `,
-    ],
-  ])('does not apply to %s', async (_name, source) => {
-    vol.fromJSON({ [previewConfigPath]: source });
-
-    expect(await checkFix(globaltypesDefaultValue, options)).toBeNull();
-    expect(await runFix(globaltypesDefaultValue, { ...options, result: {} })).toEqual([]);
-    expect(fs.readFileSync(previewConfigPath, 'utf8')).toBe(source);
   });
 });
