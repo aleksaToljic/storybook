@@ -47,7 +47,6 @@ import {
   setRequireImport,
 } from './estree/imports.ts';
 import { isDeclared } from './estree/scope.ts';
-import { resolveExpression } from './estree/values.ts';
 import { findVarInitialization } from './findVarInitialization.ts';
 
 export type { CsfKeys } from './ConfigKeys.ts';
@@ -552,10 +551,6 @@ export class ConfigFile implements CsfObject {
   _resolveDeclaration = (node: Node, isTopLevel = true) => {
     const decl = unwrapExpression(node);
     if (decl?.type === 'Identifier' && isTopLevel) {
-      const resolved = resolveExpression(this.editor.scopes, decl, 'read');
-      if (resolved) {
-        return resolved;
-      }
       const initialization = findVarInitialization(decl.name, this.program);
       return initialization ? unwrapExpression(initialization) : decl;
     }

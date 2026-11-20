@@ -1,9 +1,9 @@
 import { HandledError } from 'storybook/internal/common';
 import {
   type ConfigFile,
+  type CsfKeys,
   type ESTree as E,
   printCsfPath,
-  resolveExpression,
   staticKey,
   unwrapExpression,
 } from 'storybook/internal/csf-tools';
@@ -44,79 +44,46 @@ const isLiteralData = (node: E.Expression): boolean => {
   }
 };
 
-const getObjectProperties = (
-  object: ConfigFile,
-  node: E.Expression,
-  visited = new Set<E.ObjectExpression>()
-): E.ObjectProperty[] => {
-  const value = resolveExpression(object.editor.scopes, node, 'read');
-  if (value?.type !== 'ObjectExpression' || visited.has(value)) {
-    return [];
+const mayHaveDefaultValue = (globalType: CsfKeys | undefined) =>
+  globalType !== undefined &&
+  (globalType.keys.includes('defaultValue') || globalType.computed.length > 0);
+
+const migrate = (preview: ConfigFile) => {
+  const globalTypes = preview.getKeys(['globalTypes']);
+  if (!globalTypes) {
+    return;
   }
-  visited.add(value);
-  return value.properties.flatMap((property) =>
-    property.type === 'SpreadElement'
-      ? getObjectProperties(object, property.argument, visited)
-      : [property]
+  const candidateNames = new Set(
+    globalTypes.keys.filter((name) => mayHaveDefaultValue(preview.getKeys(['globalTypes', name])))
   );
-};
-
-const migrate = (object: ConfigFile) => {
-  const globalTypes = unwrapExpression(object.getFieldNode(['globalTypes']));
-  if (globalTypes?.type !== 'ObjectExpression') {
+  if (candidateNames.size === 0 && !globalTypes.computed.some(mayHaveDefaultValue)) {
     return;
   }
-  const globalTypesInspection = object.inspect(['globalTypes']);
-  const mayHaveDefaults = getObjectProperties(object, globalTypes).some((property) => {
-    const globalName = staticKey(property);
-    if (
-      globalName !== undefined &&
-      globalTypesInspection.kind === 'value' &&
-      object.inspect(['globalTypes', globalName, 'defaultValue']).kind === 'missing'
-    ) {
-      return false;
-    }
-    return getObjectProperties(object, property.value).some((member) => {
-      const name = staticKey(member);
-      if (name !== undefined) {
-        return name === 'defaultValue';
-      }
-      if (!member.computed) {
-        return false;
-      }
-      const key = resolveExpression(object.editor.scopes, member.key, 'read');
-      if (key?.type === 'TemplateLiteral' && key.expressions.length === 0) {
-        return staticKey({ ...member, key }) === 'defaultValue';
-      }
-      return key?.type !== 'Literal' || key.value === 'defaultValue';
-    });
-  });
-  if (!mayHaveDefaults) {
-    return;
-  }
-  if (!readForEdit(object, ['globalTypes'])) {
-    throw new HandledError('Cannot migrate named globalTypes alongside a default export.');
-  }
 
-  for (const property of globalTypes.properties) {
-    const name = staticKey(property);
-    if (name === undefined) {
-      throw new HandledError('Cannot migrate globalTypes with spreads or dynamic keys.');
-    }
+  // A global the file does not fully show may hold a default, so read every named global.
+  for (const name of globalTypes.keys) {
     const legacyPath = ['globalTypes', name, 'defaultValue'];
     const initialPath = ['initialGlobals', name];
-    const defaultValue = readForEdit(object, legacyPath);
-    if (!defaultValue) {
+    const defaultValue = readForEdit(preview, legacyPath);
+    // With mixed exports, getKeys can find a default the editor cannot reach; moving it reports why.
+    if (!defaultValue && !candidateNames.has(name)) {
       continue;
     }
-    if (!isLiteralData(defaultValue)) {
+    if (defaultValue && !isLiteralData(defaultValue)) {
       throw new HandledError(`Cannot migrate ${printCsfPath(legacyPath)} automatically.`);
     }
-    if (readForEdit(object, initialPath)) {
-      object.remove(legacyPath);
-    } else {
-      object.move(legacyPath, initialPath);
+    const hasInitialValue = readForEdit(preview, initialPath) !== undefined;
+    const result = hasInitialValue
+      ? preview.remove(legacyPath)
+      : preview.move(legacyPath, initialPath);
+    if (result.ok && !result.changed) {
+      throw new HandledError(`Cannot migrate ${printCsfPath(legacyPath)} automatically.`);
     }
+  }
+  // A spread or dynamic key the file does not show may still hide or override a default. Check it
+  // after the fields, so a field's own error points at that field first.
+  if (globalTypes.external || globalTypes.computed.length > 0) {
+    throw new HandledError('Cannot migrate globalTypes with spreads or dynamic keys.');
   }
 };
 
