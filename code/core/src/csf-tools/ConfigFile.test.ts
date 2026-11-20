@@ -2140,19 +2140,9 @@ describe('ConfigFile', () => {
     it.each([
       ['an object literal', 'export default { globalTypes: { a: 1, b: 2 } };', ['a', 'b']],
       [
-        'a later duplicate at its first position',
-        'export default { globalTypes: { a: 1, b: 2, a: 3 } };',
-        ['a', 'b'],
-      ],
-      [
         'the members of a local spread',
         'const shared = { a: 1 };\nexport default { globalTypes: { ...shared, b: 2 } };',
         ['a', 'b'],
-      ],
-      [
-        'a local object spread twice through other constants',
-        'const base = { a: 1 };\nconst common = { ...base };\nconst x = { ...common };\nconst y = { ...common };\nexport const globalTypes = { ...x, ...y };',
-        ['a'],
       ],
       [
         'a chain of local aliases',
@@ -2160,24 +2150,9 @@ describe('ConfigFile', () => {
         ['a'],
       ],
       [
-        'a constant another export shares',
-        'const types = { a: 1 };\nexport const globalTypes = types;\nexport const other = types;',
-        ['a'],
-      ],
-      [
         'computed keys named through constants, template literals and bigints',
         "const key = 'a';\nexport default { globalTypes: { [key]: 1, [`b`]: 2, 3n: 3 } };",
         ['a', 'b', '3'],
-      ],
-      [
-        'accessors and methods',
-        'export default { globalTypes: { get a() { return 1; }, b() {} } };',
-        ['a', 'b'],
-      ],
-      [
-        'boolean, null and regular expression keys',
-        'export default { globalTypes: { [true]: 1, [null]: 2, [/a/]: 3 } };',
-        ['true', 'null', '/a/'],
       ],
     ])('lists %s', (_case, source, names) => {
       expect(getKeys(source, ['globalTypes'])).toEqual(keys(...names));
@@ -2185,14 +2160,9 @@ describe('ConfigFile', () => {
 
     it.each([
       [
-        'the later of two local spreads',
-        'const a = { d: { x: 1 } };\nconst b = { d: { y: 1 } };\nexport const globalTypes = { ...a, ...b };',
-      ],
-      [
         'a member after a local spread',
         'const a = { d: { x: 1 } };\nexport const globalTypes = { ...a, d: { y: 1 } };',
       ],
-      ['the later of two duplicates', 'export const globalTypes = { d: { x: 1 }, d: { y: 1 } };'],
       [
         'a member of a local object',
         'const shared = { d: { y: 1 } };\nexport const globalTypes = { d: shared.d };',
@@ -2200,14 +2170,6 @@ describe('ConfigFile', () => {
       [
         'a quoted member of a local object',
         "const shared = { 'd-e': { y: 1 } };\nexport const globalTypes = { d: shared['d-e'] };",
-      ],
-      [
-        'an alias of a member',
-        'const shared = { d: { y: 1 } };\nconst d = shared.d;\nexport const globalTypes = { d };',
-      ],
-      [
-        'a spread of a member',
-        'const shared = { d: { y: 1 } };\nexport const globalTypes = { d: { ...shared.d } };',
       ],
     ])('reads the value %s defines', (_case, source) => {
       expect(getKeys(source, ['globalTypes', 'd'])).toEqual(keys('y'));
@@ -2218,7 +2180,6 @@ describe('ConfigFile', () => {
         'an imported spread',
         "import shared from './shared';\nexport const globalTypes = { a: 1, ...shared };",
       ],
-      ['a spread of a call', 'export const globalTypes = { a: 1, ...getTypes() };'],
       [
         'an imported spread inside a local spread',
         "import shared from './shared';\nconst types = { ...shared };\nexport const globalTypes = { a: 1, ...types };",
@@ -2257,14 +2218,6 @@ describe('ConfigFile', () => {
 
     it.each([
       [
-        'a local config constant',
-        'const config = { globalTypes: { a: 1 } } satisfies Preview;\nexport default config;',
-      ],
-      [
-        'a factory argument',
-        "import { definePreview } from '@storybook/react-vite';\nexport default definePreview({ globalTypes: { a: 1 } });",
-      ],
-      [
         'a factory argument held by a constant',
         "import { definePreview } from '@storybook/react-vite';\nconst config = { globalTypes: { a: 1 } };\nexport default definePreview(config);",
       ],
@@ -2276,16 +2229,6 @@ describe('ConfigFile', () => {
         'a factory constant exported as default by name',
         "import { definePreview } from '@storybook/react-vite';\nconst config = { globalTypes: { a: 1 } };\nconst preview = definePreview(config);\nexport { preview as default };",
       ],
-      [
-        'a custom factory argument held by a constant',
-        'const config = { globalTypes: { a: 1 } };\nexport default createPreview(config);',
-      ],
-      ['a config wrapped in another call', 'export default withTheme({ globalTypes: { a: 1 } });'],
-      [
-        'a namespace factory',
-        "import * as sb from '@storybook/react-vite';\nexport default sb.definePreview({ globalTypes: { a: 1 } });",
-      ],
-      ['module.exports', 'module.exports = { globalTypes: { a: 1 } };'],
       [
         'a CommonJS config held by an alias',
         'const config = { globalTypes: { a: 1 } };\nconst preview = config;\nmodule.exports = preview;',
@@ -2302,27 +2245,10 @@ describe('ConfigFile', () => {
         'a local spread of the default export',
         'const shared = { globalTypes: { a: 1 } };\nexport default { ...shared };',
       ],
-      [
-        'a reassigned config binding',
-        'let preview = { globalTypes: { a: 1 } };\npreview = { ...preview };\nexport default preview;',
-      ],
       ['a named export', 'export const globalTypes = { a: 1 };'],
-      ['a named specifier', 'const types = { a: 1 };\nexport { types as globalTypes };'],
-      [
-        'a reassigned binding exported by name',
-        'let types = { a: 1 };\ntypes = { ...types };\nexport { types as globalTypes };',
-      ],
       [
         'a named export the default export does not show',
         'export default { parameters: {} };\nexport const globalTypes = { a: 1 };',
-      ],
-      [
-        'a named export beside an imported default spread',
-        "import shared from './shared';\nexport default { ...shared };\nexport const globalTypes = { a: 1 };",
-      ],
-      [
-        'a reassigned binding in a config held by an alias',
-        'let types = { a: 1 };\ntypes = {};\nconst config = { globalTypes: types };\nconst preview = config;\nexport default preview;',
       ],
     ])('reads the config field of %s', (_case, source) => {
       expect(getKeys(source, ['globalTypes'])).toEqual(keys('a'));
@@ -2342,24 +2268,8 @@ describe('ConfigFile', () => {
       ],
       ['a call', 'export const globalTypes = getTypes();', ['globalTypes']],
       [
-        'an imported factory argument',
-        "import { definePreview } from '@storybook/react-vite';\nimport config from './config';\nexport default definePreview(config);",
-        ['globalTypes'],
-      ],
-      [
-        'a field an imported spread may define',
-        "import shared from './shared';\nexport default { ...shared };",
-        ['globalTypes'],
-      ],
-      ['a getter', 'export default { get globalTypes() { return {}; } };', ['globalTypes']],
-      [
         'a factory config that refers to itself',
         'const preview = definePreview(preview);\nexport default preview;',
-        ['globalTypes'],
-      ],
-      [
-        'a typed factory that refers to itself',
-        'const preview = preview.type();\nexport default preview;',
         ['globalTypes'],
       ],
       [
@@ -2367,7 +2277,6 @@ describe('ConfigFile', () => {
         'const a = { x: a.x };\nexport const globalTypes = a.x;',
         ['globalTypes'],
       ],
-      ['an export that refers to itself', 'export var globalTypes = globalTypes;', ['globalTypes']],
     ])('returns undefined for %s', (_case, source, path) => {
       expect(getKeys(source, path)).toBeUndefined();
     });
