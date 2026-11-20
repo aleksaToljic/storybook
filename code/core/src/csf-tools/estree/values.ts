@@ -248,10 +248,8 @@ const readResolved = (
   return UNRESOLVED;
 };
 
-/**
- * Follow local constant aliases and unwrap TypeScript expressions. The default `write` access
- * follows only a constant with one reference; `read` may follow shared constants without editing.
- */
+// Follows identifiers to the initializers of their constants. An edit through a constant changes
+// every user of it, so a `write` follows only a constant this identifier is the one reference of.
 export const resolveExpression = (
   scopes: ScopeInfo,
   node: Node,

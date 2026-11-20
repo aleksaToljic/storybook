@@ -467,6 +467,14 @@ describe('globaltypes-default-value', () => {
       'a bigint metadata key without a default',
       "export const globalTypes = { direction: { 1n: 'metadata' } };",
     ],
+    [
+      'a spread default replaced by a later local spread',
+      dedent`
+        const defaults = { direction: { defaultValue: 'ltr' } };
+        const types = { direction: { description: 'Direction' } };
+        export const globalTypes = { ...defaults, ...types };
+      `,
+    ],
   ])('does not apply to %s', async (_name, source) => {
     vol.fromJSON({ [previewConfigPath]: source });
 
@@ -666,14 +674,6 @@ describe('globaltypes-default-value', () => {
         const defaults = { direction: { defaultValue: 'ltr' } };
         const types = { ...defaults };
         export default { globalTypes: { ...types } };
-      `,
-    ],
-    [
-      'conflicting global types from local spreads',
-      dedent`
-        const defaults = { direction: { defaultValue: 'ltr' } };
-        const types = { direction: { description: 'Direction' } };
-        export const globalTypes = { ...defaults, ...types };
       `,
     ],
   ])('requires a manual migration for %s', async (_name, source) => {
