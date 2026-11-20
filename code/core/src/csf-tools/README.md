@@ -138,6 +138,13 @@ if (config.changed && config.mutationDiagnostics.length === 0) {
 
 `ConfigFile.changed` and `ConfigFile.mutationDiagnostics` track these editor operations. Existing `getFieldNode` reads reflect editor changes. `writeConfig` rejects files with mutation diagnostics to avoid writing partial edits.
 
+`ConfigFile.getKeys(path)` lists the keys of the object literal at a path, as the runtime would build it from what the file shows, without editing or reporting. A later member or spread replaces an earlier one, local constants, their members and spreads of local object literals are followed, and a field the default export does not show is read from the named export, as Storybook merges them. It returns `{ keys, computed, external }`, where `computed` holds what each member with a key it cannot name holds, and `external` means that a spread the file does not show can add or replace members. Like `get`, it returns `undefined` both when nothing defines the path and when the file does not show an object literal there, as for an imported value. An automigration uses it to find what a file defines, and then edits through the operations above, which prove their own targets.
+
+```ts
+const config = loadConfig("const shared = { theme: {} };\nexport default { globalTypes: { ...shared, locale: {} } };").parse();
+config.getKeys(['globalTypes']); // { keys: ['theme', 'locale'], computed: [], external: false }
+```
+
 `appendValueToArray` and `appendNodeToArray` are deprecated: use `append`. `removeEntryFromArray`, deprecated too, removes the first entry of an array that names a value: a string, a `{ name }` object, or a call like `getAbsolutePath(value)`; find the entry's index in the list `inspectList(path)` returns and `remove([...path, index])` it instead. The three helpers edit the array literal the field resolves to, through local constants and type assertions, and return a `CsfMutationResult` like the editor operations. A field that is not an array literal, a call included, leaves the file as it is and adds an `unsupported-value` diagnostic; a missing field or entry is a no-op for `removeEntryFromArray`, unless a spread or a computed key leaves the field unproven. Like `append` and `remove`, they refuse an array that a later spread could replace, and one in a constant that other code refers to as well.
 
 Discovery rejects shared or reassigned bindings, unresolved re-exports, and conditional or repeated CommonJS assignments. Inline object methods and exported function declarations can be transformed as function expressions while retaining their declaration form. Path edits use the same spread, duplicate-key, occupied-destination, and dynamic-value checks as story edits. Unsupported input produces diagnostics without rewriting that input.

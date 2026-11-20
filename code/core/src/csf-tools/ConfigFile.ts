@@ -6,6 +6,7 @@ import { dedent } from 'ts-dedent';
 import invariant from 'tiny-invariant';
 
 import type { PrintResultType } from './PrintResultType.ts';
+import { type CsfKeys, getConfigKeys } from './ConfigKeys.ts';
 import { createConfigObject, locateConfigRoot } from './ConfigObject.ts';
 import {
   type CsfExpression,
@@ -48,6 +49,8 @@ import {
 import { isDeclared } from './estree/scope.ts';
 import { resolveExpression } from './estree/values.ts';
 import { findVarInitialization } from './findVarInitialization.ts';
+
+export type { CsfKeys } from './ConfigKeys.ts';
 
 export interface CallArgumentsOptions {
   importedName: string;
@@ -438,6 +441,25 @@ export class ConfigFile implements CsfObject {
     return editor.ok === true
       ? editor.object.inspectList(path)
       : { kind: 'refused', diagnostic: editor.diagnostic };
+  }
+
+  /**
+   * Read the keys of the object literal at a path as the file defines it, without editing or
+   * reporting, or `undefined` when the file does not show one there. Later members and spreads
+   * replace earlier ones, local constants, their members and spreads of local object literals are
+   * followed, and a named export is read when the default export does not show the path's first
+   * key, as the runtime merges them. The read proves nothing about values at runtime: an edit
+   * proves its own target.
+   *
+   * @example
+   * ```ts
+   * const config = loadConfig('export default { globalTypes: { theme: {}, ...shared } };').parse();
+   * config.getKeys(['globalTypes']); // { keys: ['theme'], computed: [], external: true }
+   * config.getKeys(['parameters']); // undefined
+   * ```
+   */
+  getKeys(path: CsfPath): CsfKeys | undefined {
+    return getConfigKeys(this, path);
   }
 
   _mutate(operation: (object: CsfObject) => CsfMutationResult): CsfMutationResult {
