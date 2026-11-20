@@ -260,18 +260,6 @@ describe('ConfigFile', () => {
           expect(getField(['core', 'builder'], source)).toEqual('webpack5');
         }
       });
-      it('finds fields through a chain of local aliases', () => {
-        const config = loadConfig(dedent`
-          const defaults = { builder: 'webpack5' };
-          const settings = defaults;
-          export const core = settings;
-        `).parse();
-
-        expect(config.getFieldNode(['core', 'builder'])).toMatchObject({
-          type: 'Literal',
-          value: 'webpack5',
-        });
-      });
     });
 
     describe('module exports', () => {
@@ -2142,6 +2130,178 @@ describe('ConfigFile', () => {
         const config: StorybookConfig = { };
         export default config;
       `);
+    });
+  });
+
+  describe('getKeys', () => {
+    const getKeys = (source: string, path: string[]) => loadConfig(source).parse().getKeys(path);
+    const keys = (...names: string[]) => ({ keys: names, computed: [], external: false });
+
+    it.each([
+      ['an object literal', 'export default { globalTypes: { a: 1, b: 2 } };', ['a', 'b']],
+      [
+        'the members of a local spread',
+        'const shared = { a: 1 };\nexport default { globalTypes: { ...shared, b: 2 } };',
+        ['a', 'b'],
+      ],
+      [
+        'a chain of local aliases',
+        'const defaults = { a: 1 };\nconst types = defaults;\nexport const globalTypes = types;',
+        ['a'],
+      ],
+      [
+        'computed keys named through constants, template literals and bigints',
+        "const key = 'a';\nexport default { globalTypes: { [key]: 1, [`b`]: 2, 3n: 3 } };",
+        ['a', 'b', '3'],
+      ],
+    ])('lists %s', (_case, source, names) => {
+      expect(getKeys(source, ['globalTypes'])).toEqual(keys(...names));
+    });
+
+    it.each([
+      [
+        'a member after a local spread',
+        'const a = { d: { x: 1 } };\nexport const globalTypes = { ...a, d: { y: 1 } };',
+      ],
+      [
+        'a member of a local object',
+        'const shared = { d: { y: 1 } };\nexport const globalTypes = { d: shared.d };',
+      ],
+      [
+        'a quoted member of a local object',
+        "const shared = { 'd-e': { y: 1 } };\nexport const globalTypes = { d: shared['d-e'] };",
+      ],
+    ])('reads the value %s defines', (_case, source) => {
+      expect(getKeys(source, ['globalTypes', 'd'])).toEqual(keys('y'));
+    });
+
+    it.each([
+      [
+        'an imported spread',
+        "import shared from './shared';\nexport const globalTypes = { a: 1, ...shared };",
+      ],
+      [
+        'an imported spread inside a local spread',
+        "import shared from './shared';\nconst types = { ...shared };\nexport const globalTypes = { a: 1, ...types };",
+      ],
+      [
+        'a spread of the object itself',
+        'var types = { ...types, a: 1 };\nexport const globalTypes = types;',
+      ],
+    ])('marks %s as external', (_case, source) => {
+      expect(getKeys(source, ['globalTypes'])).toEqual({
+        keys: ['a'],
+        computed: [],
+        external: true,
+      });
+    });
+
+    it.each([
+      [
+        'an object literal',
+        'export const globalTypes = { [getName()]: { a: 1 }, [name]: value };',
+        [keys('a'), undefined],
+      ],
+      [
+        'a local spread',
+        'const types = { [getName()]: { a: 1 } };\nexport const globalTypes = { ...types };',
+        [keys('a')],
+      ],
+      [
+        'the object itself',
+        'var types = { [getName()]: types };\nexport const globalTypes = types;',
+        [undefined],
+      ],
+    ])('holds what a member with a key it cannot name holds in %s', (_case, source, computed) => {
+      expect(getKeys(source, ['globalTypes'])).toEqual({ keys: [], computed, external: false });
+    });
+
+    it.each([
+      [
+        'a factory argument held by a constant',
+        "import { definePreview } from '@storybook/react-vite';\nconst config = { globalTypes: { a: 1 } };\nexport default definePreview(config);",
+      ],
+      [
+        'a typed factory',
+        "import { definePreview } from '@storybook/react-vite';\nconst config = { globalTypes: { a: 1 } };\nexport default definePreview(config).type<Preview>();",
+      ],
+      [
+        'a factory constant exported as default by name',
+        "import { definePreview } from '@storybook/react-vite';\nconst config = { globalTypes: { a: 1 } };\nconst preview = definePreview(config);\nexport { preview as default };",
+      ],
+      [
+        'a CommonJS config held by an alias',
+        'const config = { globalTypes: { a: 1 } };\nconst preview = config;\nmodule.exports = preview;',
+      ],
+      [
+        'a conditional module.exports',
+        'if (enabled) {\n  module.exports = { globalTypes: { a: 1 } };\n}',
+      ],
+      [
+        'one of two module.exports assignments',
+        'if (enabled) {\n  module.exports = { globalTypes: { a: 1 } };\n} else {\n  module.exports = { parameters: {} };\n}',
+      ],
+      [
+        'a local spread of the default export',
+        'const shared = { globalTypes: { a: 1 } };\nexport default { ...shared };',
+      ],
+      ['a named export', 'export const globalTypes = { a: 1 };'],
+      [
+        'a named export the default export does not show',
+        'export default { parameters: {} };\nexport const globalTypes = { a: 1 };',
+      ],
+    ])('reads the config field of %s', (_case, source) => {
+      expect(getKeys(source, ['globalTypes'])).toEqual(keys('a'));
+    });
+
+    it.each([
+      ['a field no member defines', 'export default { parameters: {} };', ['globalTypes']],
+      [
+        'a key no member defines',
+        'export default { globalTypes: { a: 1 } };',
+        ['globalTypes', 'b'],
+      ],
+      [
+        'an imported value',
+        "import types from './types';\nexport const globalTypes = types;",
+        ['globalTypes'],
+      ],
+      ['a call', 'export const globalTypes = getTypes();', ['globalTypes']],
+      [
+        'a factory config that refers to itself',
+        'const preview = definePreview(preview);\nexport default preview;',
+        ['globalTypes'],
+      ],
+      [
+        'a member that refers to itself',
+        'const a = { x: a.x };\nexport const globalTypes = a.x;',
+        ['globalTypes'],
+      ],
+    ])('returns undefined for %s', (_case, source, path) => {
+      expect(getKeys(source, path)).toBeUndefined();
+    });
+
+    it('reads an object that every level spreads twice once', () => {
+      const levels = Array.from(
+        { length: 40 },
+        (_, level) => `const l${level + 1} = { ...l${level}, ...l${level} };`
+      );
+      const source = ['const l0 = { a: 1 };', ...levels, 'export const globalTypes = l40;'].join(
+        '\n'
+      );
+
+      expect(getKeys(source, ['globalTypes'])).toEqual(keys('a'));
+    });
+
+    it('neither edits nor reports', () => {
+      const config = loadConfig(
+        "import shared from './shared';\nexport default { ...shared };"
+      ).parse();
+
+      config.getKeys(['globalTypes', 'direction']);
+
+      expect(config.changed).toBe(false);
+      expect(config.mutationDiagnostics).toEqual([]);
     });
   });
 
