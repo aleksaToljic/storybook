@@ -65,7 +65,7 @@ const migrate = (preview: ConfigFile) => {
     const legacyPath = ['globalTypes', name, 'defaultValue'];
     const initialPath = ['initialGlobals', name];
     const defaultValue = readForEdit(preview, legacyPath);
-    // With mixed exports, getKeys can find a default the editor cannot reach; moving it reports why.
+    // With mixed exports, skipping a default found by getKeys would hide the error.
     if (!defaultValue && !candidateNames.has(name)) {
       continue;
     }
